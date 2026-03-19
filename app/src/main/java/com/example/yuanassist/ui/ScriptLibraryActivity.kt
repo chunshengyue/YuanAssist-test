@@ -23,6 +23,7 @@ class ScriptLibraryActivity : AppCompatActivity() {
     companion object {
         const val EXTRA_PICK_MODE = "pick_mode"
         const val PICK_MODE_DAILY_PLAN = "daily_plan"
+        private const val DAILY_ASSET_DIR = "daily_scripts"
     }
 
     private enum class EntryType {
@@ -30,10 +31,18 @@ class ScriptLibraryActivity : AppCompatActivity() {
         DAILY_PLAN
     }
 
+    private enum class EntrySource {
+        FILE_SYSTEM,
+        ASSET
+    }
+
     private data class LibraryEntry(
-        val file: File,
+        val name: String,
+        val displayName: String,
         val type: EntryType,
-        val displayName: String
+        val source: EntrySource,
+        val file: File? = null,
+        val assetPath: String? = null
     )
 
     private val gson = Gson()
@@ -81,16 +90,13 @@ class ScriptLibraryActivity : AppCompatActivity() {
         listView.setOnItemClickListener { _, _, position, _ ->
             val entry = entries[position]
             if (isDailyPickerMode()) {
-                if (entry.type != EntryType.DAILY_PLAN) {
-                    Toast.makeText(this, "这个文件不是日常任务 JSON", Toast.LENGTH_SHORT).show()
-                    return@setOnItemClickListener
-                }
                 selectDailyPlan(entry)
-            } else {
-                when (entry.type) {
-                    EntryType.LEGACY_SCRIPT -> showLegacyScriptPreview(entry.file)
-                    EntryType.DAILY_PLAN -> showDailyPlanPreview(entry.file)
-                }
+                return@setOnItemClickListener
+            }
+
+            when (entry.type) {
+                EntryType.LEGACY_SCRIPT -> showLegacyScriptPreview(entry)
+                EntryType.DAILY_PLAN -> showDailyPlanPreview(entry)
             }
         }
     }
@@ -100,39 +106,67 @@ class ScriptLibraryActivity : AppCompatActivity() {
     }
 
     private fun loadEntries(): List<LibraryEntry> {
-        val dir = File(filesDir, "scripts")
-        val files = dir.listFiles { _, name -> name.endsWith(".json", ignoreCase = true) }
-            ?.sortedByDescending { it.lastModified() }
-            ?: emptyList()
-
-        val filtered = files.mapNotNull { file ->
-            when (detectEntryType(file)) {
-                EntryType.LEGACY_SCRIPT -> LibraryEntry(
-                    file = file,
-                    type = EntryType.LEGACY_SCRIPT,
-                    displayName = "[跟打] ${file.nameWithoutExtension}"
-                )
-
-                EntryType.DAILY_PLAN -> LibraryEntry(
-                    file = file,
-                    type = EntryType.DAILY_PLAN,
-                    displayName = "[日常] ${file.nameWithoutExtension}"
-                )
-
-                null -> null
-            }
+        val dailyEntries = loadDailyAssetEntries()
+        if (isDailyPickerMode()) {
+            return dailyEntries
         }
 
-        return if (isDailyPickerMode()) {
-            filtered.filter { it.type == EntryType.DAILY_PLAN }
-        } else {
-            filtered
+        return buildList {
+            addAll(loadLegacyFileEntries())
+            addAll(dailyEntries)
         }
     }
 
-    private fun detectEntryType(file: File): EntryType? {
+    private fun loadLegacyFileEntries(): List<LibraryEntry> {
+        val dir = File(filesDir, "scripts")
+        val files = dir.listFiles { _, name -> name.endsWith(".json", ignoreCase = true) }
+            ?.sortedByDescending { it.lastModified() }
+            ?: return emptyList()
+
+        return files.mapNotNull { file ->
+            val content = runCatching { file.readText() }.getOrNull() ?: return@mapNotNull null
+            val type = detectEntryType(content) ?: return@mapNotNull null
+            if (type != EntryType.LEGACY_SCRIPT) return@mapNotNull null
+
+            LibraryEntry(
+                name = file.nameWithoutExtension,
+                displayName = "[跟打] ${file.nameWithoutExtension}",
+                type = type,
+                source = EntrySource.FILE_SYSTEM,
+                file = file
+            )
+        }
+    }
+
+    private fun loadDailyAssetEntries(): List<LibraryEntry> {
+        val fileNames = try {
+            assets.list(DAILY_ASSET_DIR)
+                ?.filter { it.endsWith(".json", ignoreCase = true) }
+                ?.sorted()
+                ?: emptyList()
+        } catch (_: Exception) {
+            emptyList()
+        }
+
+        return fileNames.mapNotNull { fileName ->
+            val assetPath = "$DAILY_ASSET_DIR/$fileName"
+            val content = runCatching { readAssetText(assetPath) }.getOrNull() ?: return@mapNotNull null
+            val type = detectEntryType(content) ?: return@mapNotNull null
+            if (type != EntryType.DAILY_PLAN) return@mapNotNull null
+
+            LibraryEntry(
+                name = fileName.removeSuffix(".json"),
+                displayName = "[日常] ${fileName.removeSuffix(".json")}",
+                type = type,
+                source = EntrySource.ASSET,
+                assetPath = assetPath
+            )
+        }
+    }
+
+    private fun detectEntryType(content: String): EntryType? {
         return try {
-            val jsonObject = JsonParser.parseString(file.readText()).asJsonObject
+            val jsonObject = JsonParser.parseString(content).asJsonObject
             when {
                 jsonObject.has("start_task_id") && jsonObject.has("tasks") -> EntryType.DAILY_PLAN
                 jsonObject.has("scriptContent") && jsonObject.has("config") -> EntryType.LEGACY_SCRIPT
@@ -144,23 +178,25 @@ class ScriptLibraryActivity : AppCompatActivity() {
     }
 
     private fun selectDailyPlan(entry: LibraryEntry) {
+        if (entry.type != EntryType.DAILY_PLAN) {
+            Toast.makeText(this, "这个文件不是日常任务 JSON", Toast.LENGTH_SHORT).show()
+            return
+        }
+
         try {
-            val content = entry.file.readText()
+            val content = readEntryText(entry)
             gson.fromJson(content, DailyTaskPlan::class.java)
-            DailyScriptLibraryBridge.onDailyPlanSelected?.invoke(
-                entry.file.nameWithoutExtension,
-                content
-            )
-            Toast.makeText(this, "已选择 ${entry.file.nameWithoutExtension}", Toast.LENGTH_SHORT).show()
+            DailyScriptLibraryBridge.onDailyPlanSelected?.invoke(entry.name, content)
+            Toast.makeText(this, "已选择 ${entry.name}", Toast.LENGTH_SHORT).show()
             finish()
         } catch (e: Exception) {
             Toast.makeText(this, "脚本解析失败: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
 
-    private fun showDailyPlanPreview(file: File) {
+    private fun showDailyPlanPreview(entry: LibraryEntry) {
         try {
-            val plan = gson.fromJson(file.readText(), DailyTaskPlan::class.java)
+            val plan = gson.fromJson(readEntryText(entry), DailyTaskPlan::class.java)
             val summary = buildString {
                 appendLine("起始任务: ${plan.start_task_id}")
                 appendLine("任务总数: ${plan.tasks.size}")
@@ -173,29 +209,25 @@ class ScriptLibraryActivity : AppCompatActivity() {
             }
 
             AlertDialog.Builder(this)
-                .setTitle(file.nameWithoutExtension)
+                .setTitle(entry.name)
                 .setMessage(summary.trim())
                 .setPositiveButton("关闭", null)
-                .setNegativeButton("删除") { _, _ ->
-                    file.delete()
-                    recreate()
-                }
                 .show()
         } catch (e: Exception) {
             Toast.makeText(this, "预览失败: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
 
-    private fun showLegacyScriptPreview(file: File) {
+    private fun showLegacyScriptPreview(entry: LibraryEntry) {
         try {
-            val scriptObj = gson.fromJson(file.readText(), LocalScriptJson::class.java)
+            val scriptObj = gson.fromJson(readEntryText(entry), LocalScriptJson::class.java)
             val scrollView = ScrollView(this)
             val content = TextView(this).apply {
                 setPadding(40, 40, 40, 40)
                 setTextColor(Color.BLACK)
                 textSize = 14f
                 text = buildString {
-                    appendLine("标题: ${scriptObj.title ?: file.nameWithoutExtension}")
+                    appendLine("标题: ${scriptObj.title ?: entry.name}")
                     appendLine()
                     appendLine("脚本内容:")
                     appendLine(scriptObj.scriptContent)
@@ -212,17 +244,34 @@ class ScriptLibraryActivity : AppCompatActivity() {
             }
             scrollView.addView(content)
 
-            AlertDialog.Builder(this)
-                .setTitle(scriptObj.title ?: file.nameWithoutExtension)
+            val builder = AlertDialog.Builder(this)
+                .setTitle(scriptObj.title ?: entry.name)
                 .setView(scrollView)
                 .setPositiveButton("关闭", null)
-                .setNegativeButton("删除") { _, _ ->
-                    file.delete()
+
+            if (entry.source == EntrySource.FILE_SYSTEM) {
+                builder.setNegativeButton("删除") { _, _ ->
+                    entry.file?.delete()
                     recreate()
                 }
-                .show()
+            }
+
+            builder.show()
         } catch (e: Exception) {
             Toast.makeText(this, "预览失败: ${e.message}", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun readEntryText(entry: LibraryEntry): String {
+        return when (entry.source) {
+            EntrySource.FILE_SYSTEM -> entry.file?.readText()
+                ?: error("脚本文件不存在")
+
+            EntrySource.ASSET -> readAssetText(entry.assetPath ?: error("缺少资源路径"))
+        }
+    }
+
+    private fun readAssetText(assetPath: String): String {
+        return assets.open(assetPath).bufferedReader(Charsets.UTF_8).use { it.readText() }
     }
 }

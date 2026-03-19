@@ -320,7 +320,7 @@ class DailyWindowManager(private val service: AccessibilityService) {
         val offsetX = (screenWidth - gameWidth) / 2f
         val offsetY = (screenHeight - gameHeight) / 2f
 
-        var statusBarHeight = 0
+        var statusBarHeight = 40
         val resourceId = service.resources.getIdentifier("status_bar_height", "dimen", "android")
         if (resourceId > 0) {
             statusBarHeight = service.resources.getDimensionPixelSize(resourceId)
