@@ -33,7 +33,12 @@ data class TaskParams(
     val threshold: Float = 0.8f,
     val roi: ROI? = null,
     val button_name: String? = null,
-    val ref_task_id: Int? = null
+    val ref_task_id: Int? = null,
+    val click: Int? = null,
+    val var_name: String? = null,
+    val var_value: String? = null,
+    val branch_var: String? = null,
+    val branch_routes: Map<String, Int>? = null
 )
 
 data class ROI(

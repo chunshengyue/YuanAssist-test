@@ -7,6 +7,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.graphics.Point
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.Handler
@@ -25,7 +26,9 @@ import android.widget.Toast
 import com.example.yuanassist.R
 import com.example.yuanassist.model.DailyTaskPlan
 import com.example.yuanassist.ui.ScriptLibraryActivity
+import com.example.yuanassist.utils.RunLogger
 import com.google.gson.Gson
+import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
@@ -61,6 +64,8 @@ class DailyWindowManager(private val service: AccessibilityService) {
     fun showWindow() {
         if (floatView != null) return
 
+        RunLogger.init(service)
+
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -84,7 +89,6 @@ class DailyWindowManager(private val service: AccessibilityService) {
         val btnClose = view.findViewById<Button>(R.id.btn_daily_close)
         val tvTitle = view.findViewById<TextView>(R.id.tv_daily_title)
 
-        btnLibrary.text = "脚本库"
         btnLibrary.setOnClickListener { openScriptLibrary() }
 
         btnClose.setOnClickListener {
@@ -97,6 +101,9 @@ class DailyWindowManager(private val service: AccessibilityService) {
         }
 
         btnAction.setOnClickListener {
+            RunLogger.i(
+                "点击日常执行按钮：isRunning=${engine.isRunning}；script=${currentScriptName ?: "(none)"}"
+            )
             if (engine.isRunning) {
                 engine.stop()
                 btnAction.text = "开始执行"
@@ -109,6 +116,10 @@ class DailyWindowManager(private val service: AccessibilityService) {
                 Toast.makeText(service, "请先从脚本库选择日常 JSON", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
+
+            RunLogger.init(service)
+            RunLogger.clear()
+            RunLogger.i("开始执行日常脚本：${currentScriptName ?: "(unnamed)"}")
 
             btnAction.text = "停止执行"
             engine.startPlan(
@@ -217,6 +228,7 @@ class DailyWindowManager(private val service: AccessibilityService) {
                     updateStatus("已载入脚本: $fileName")
                     Toast.makeText(service, "已载入 $fileName", Toast.LENGTH_SHORT).show()
                 } catch (e: Exception) {
+                    RunLogger.e("日常脚本解析失败：$fileName", e)
                     updateStatus("脚本解析失败")
                     Toast.makeText(service, "脚本解析失败: ${e.message}", Toast.LENGTH_SHORT).show()
                 }
@@ -311,20 +323,13 @@ class DailyWindowManager(private val service: AccessibilityService) {
     }
 
     private fun buildPickedCoordinate(rawX: Float, rawY: Float): PickedCoordinate {
-        val metrics = service.resources.displayMetrics
-        val screenWidth = metrics.widthPixels.toFloat()
-        val screenHeight = metrics.heightPixels.toFloat()
+        val (screenWidth, screenHeight) = getRealScreenSize()
         val gameScale = min(screenWidth / BASE_W, screenHeight / BASE_H)
         val gameWidth = BASE_W * gameScale
         val gameHeight = BASE_H * gameScale
         val offsetX = (screenWidth - gameWidth) / 2f
         val offsetY = (screenHeight - gameHeight) / 2f
-
-        var statusBarHeight = 40
-        val resourceId = service.resources.getIdentifier("status_bar_height", "dimen", "android")
-        if (resourceId > 0) {
-            statusBarHeight = service.resources.getDimensionPixelSize(resourceId)
-        }
+        val statusBarHeight = getScaledStatusBarHeight(screenWidth, screenHeight)
 
         val screenX = rawX.roundToInt()
         val screenY = rawY.roundToInt()
@@ -346,6 +351,51 @@ class DailyWindowManager(private val service: AccessibilityService) {
             clipboardText = clipboardText,
             toastText = "已复制坐标 ($screenX, $screenY)"
         )
+    }
+
+    private fun getRealScreenSize(): Pair<Float, Float> {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val bounds = windowManager.maximumWindowMetrics.bounds
+            Pair(bounds.width().toFloat(), bounds.height().toFloat())
+        } else {
+            val point = Point()
+            @Suppress("DEPRECATION")
+            windowManager.defaultDisplay.getRealSize(point)
+            Pair(point.x.toFloat(), point.y.toFloat())
+        }
+    }
+
+    private fun getRawStatusBarHeight(): Int {
+        val resourceId = service.resources.getIdentifier("status_bar_height", "dimen", "android")
+        return if (resourceId > 0) service.resources.getDimensionPixelSize(resourceId) else 40
+    }
+
+    private fun getPhysicalDisplaySize(): Pair<Int, Int>? {
+        @Suppress("DEPRECATION")
+        val display = windowManager.defaultDisplay ?: return null
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            return null
+        }
+        val mode = display.mode ?: return null
+        return Pair(mode.physicalWidth, mode.physicalHeight)
+    }
+
+    private fun getPhysicalToLogicalScale(screenWidth: Float, screenHeight: Float): Float {
+        val physicalSize = getPhysicalDisplaySize() ?: return 1f
+        val physicalShort = min(physicalSize.first, physicalSize.second).toFloat()
+        val physicalLong = max(physicalSize.first, physicalSize.second).toFloat()
+        val logicalShort = min(screenWidth, screenHeight)
+        val logicalLong = max(screenWidth, screenHeight)
+        if (logicalShort <= 0f || logicalLong <= 0f) return 1f
+
+        val widthScale = physicalShort / logicalShort
+        val heightScale = physicalLong / logicalLong
+        return ((widthScale + heightScale) / 2f).coerceAtLeast(1f)
+    }
+
+    private fun getScaledStatusBarHeight(screenWidth: Float, screenHeight: Float): Float {
+        val rawStatusBarHeight = getRawStatusBarHeight().toFloat()
+        return rawStatusBarHeight / 2f
     }
 
     private fun copyToClipboard(text: String) {
