@@ -60,7 +60,7 @@
         }
       },
       "on_success": 301,
-      "on_fail": 302
+      "on_fail": -4
     },
     {
       "id": 301,
@@ -83,6 +83,30 @@
     },
     {
       "id": 4,
+      "action": "MATCH_TEMPLATE",
+      "delay": 1000,
+      "params": {
+        "template_name": "sherou.png",
+        "threshold": 0.85,
+        "terminal_note": "当前任务鸟食耗尽",
+        "branch_var": "auto_eat_enabled",
+        "branch_routes": {
+          "1": 402,
+          "0": -3
+        },
+        "roi": {
+          "x": 217,
+          "y": 954,
+          "w": 200,
+          "h": 300,
+          "align": "center"
+        }
+      },
+      "on_success": 402,
+      "on_fail": 6
+    },
+    {
+      "id": 402,
       "action": "MATCH_TEMPLATE",
       "delay": 1500,
       "params": {
@@ -137,7 +161,7 @@
     {
       "id": 6,
       "action": "CLICK",
-      "delay": 1500,
+      "delay": 1000,
       "params": {
         "x": 204,
         "y": 461,
@@ -156,7 +180,7 @@
         "roi": {
           "x": 331,
           "y": 829,
-          "w": 200,
+          "w": 300,
           "h": 300,
           "align": "top"
         }
@@ -206,6 +230,7 @@
       "params": {
         "template_name": "huise_queding.png",
         "threshold": 0.75,
+        "terminal_note": "突发情况路径错误",
         "roi": {
           "x": 542,
           "y": 1751,
@@ -215,12 +240,12 @@
         }
       },
       "on_success": 11,
-      "on_fail": -1
+      "on_fail": -2
     },
     {
       "id": 11,
       "action": "CLICK",
-      "delay": 1000,
+      "delay": 700,
       "params": {
         "x": 105,
         "y": 1344,
@@ -232,7 +257,7 @@
     {
       "id": 12,
       "action": "CLICK",
-      "delay": 1000,
+      "delay": 700,
       "params": {
         "x": 314,
         "y": 1340,
@@ -244,7 +269,7 @@
     {
       "id": 13,
       "action": "CLICK",
-      "delay": 1000,
+      "delay": 700,
       "params": {
         "x": 530,
         "y": 1336,
@@ -256,7 +281,7 @@
     {
       "id": 14,
       "action": "CLICK",
-      "delay": 1000,
+      "delay": 700,
       "params": {
         "x": 738,
         "y": 1344,
@@ -268,7 +293,7 @@
     {
       "id": 15,
       "action": "CLICK",
-      "delay": 1000,
+      "delay": 700,
       "params": {
         "x": 948,
         "y": 1340,
@@ -280,17 +305,54 @@
     {
       "id": 16,
       "action": "CLICK",
-      "delay": 1000,
+      "delay": 700,
       "params": {
         "ref_task_id": 10
       },
-      "on_success": 17,
+      "on_success": 1600,
       "on_fail": -1
+    },
+    {
+      "id": 1600,
+      "action": "MATCH_TEMPLATE",
+      "delay": 1000,
+      "params": {
+        "template_name": "biaoxian.png",
+        "threshold": 0.75,
+        "roi": {
+          "x": 504,
+          "y": 856,
+          "w": 200,
+          "h": 300,
+          "align": "center"
+        }
+      },
+      "on_success": 17,
+      "on_fail": 1601
+    },
+    {
+      "id": 1601,
+      "action": "MATCH_TEMPLATE",
+      "delay": 2000,
+      "params": {
+        "template_name": "tiaoguo1.png",
+        "threshold": 0.75,
+        "click": 1,
+        "roi": {
+          "x": 936,
+          "y": 244,
+          "w": 200,
+          "h": 300,
+          "align": "top"
+        }
+      },
+      "on_success": 17,
+      "on_fail": 17
     },
     {
       "id": 17,
       "action": "CLICK",
-      "delay": 1000,
+      "delay": 500,
       "params": {
         "x": 204,
         "y": 461,
@@ -312,7 +374,7 @@
           "5-4": 53
         }
       },
-      "on_success": -1,
+      "on_success": 2,
       "on_fail": -1
     },
     {
@@ -465,14 +527,14 @@
     {
       "id": 22,
       "action": "MATCH_TEMPLATE",
-      "delay": 200,
+      "delay": 300,
       "params": {
-        "template_name": "cunzi.png",
-        "threshold": 0.85,
+        "template_name": "cunzi4.png",
+        "threshold": 0.75,
         "roi": {
-          "x": 164,
-          "y": 1142,
-          "w": 250,
+          "x": 935,
+          "y": 949,
+          "w": 300,
           "h": 300,
           "align": "top"
         }
@@ -547,6 +609,7 @@
         "template_name": "queding.png",
         "threshold": 0.75,
         "click": 1,
+        "terminal_note": "突发情况路径错误",
         "roi": {
           "x": 544,
           "y": 1308,
@@ -555,20 +618,21 @@
           "align": "center"
         }
       },
-      "on_success": -1,
-      "on_fail": -1
+      "start_cooldown_on_success": true,
+      "on_success": 2,
+      "on_fail": -2
     },
     {
       "id": 28,
       "action": "MATCH_TEMPLATE",
-      "delay": 200,
+      "delay": 300,
       "params": {
         "template_name": "shulin.png",
         "threshold": 0.85,
         "roi": {
           "x": 208,
           "y": 890,
-          "w": 200,
+          "w": 300,
           "h": 300,
           "align": "top"
         }
@@ -674,14 +738,14 @@
     {
       "id": 36,
       "action": "MATCH_TEMPLATE",
-      "delay": 200,
+      "delay": 300,
       "params": {
         "template_name": "jiedao2.png",
         "threshold": 0.85,
         "roi": {
-          "x": 330,
-          "y": 832,
-          "w": 200,
+          "x": 227,
+          "y": 1439,
+          "w": 300,
           "h": 300,
           "align": "top"
         }
@@ -787,20 +851,21 @@
     {
       "id": 44,
       "action": "MATCH_TEMPLATE",
-      "delay": 200,
+      "delay": 300,
       "params": {
         "template_name": "taohua.png",
         "threshold": 0.85,
+        "terminal_note": "识别突发情况场景失败",
         "roi": {
           "x": 240,
           "y": 836,
-          "w": 200,
+          "w": 300,
           "h": 300,
           "align": "top"
         }
       },
       "on_success": 4401,
-      "on_fail": -1
+      "on_fail": -2
     },
     {
       "id": 4401,

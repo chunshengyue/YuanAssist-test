@@ -12,7 +12,15 @@ data class AppConfig(
     val swipeThreshold: Int,
     val inputHeightRatio: Int,
     val recordDelay: Long,
-    val gameSpeed: Int
+    val gameSpeed: Int,
+    val attackOffsetX: Float = 0f,
+    val attackYFromBottom: Float = 600f,
+    val upOffsetX: Float = 0f,
+    val upYFromBottom: Float = 695f,
+    val downOffsetX: Float = 0f,
+    val downYFromBottom: Float = 514f,
+    val circleOffsetX: Float = 0f,
+    val circleYFromBottom: Float = 317.3f
 )
 
 object ConfigManager {
@@ -43,7 +51,15 @@ object ConfigManager {
             swipeThreshold = p.getInt("swipe_threshold", DEF_SWIPE_THRESHOLD),
             inputHeightRatio = p.getInt("input_height", DEF_INPUT_HEIGHT),
             recordDelay = p.getLong("record_delay", DEF_RECORD_DELAY),
-            gameSpeed = p.getInt("game_speed", DEF_GAME_SPEED)
+            gameSpeed = p.getInt("game_speed", DEF_GAME_SPEED),
+            attackOffsetX = p.getFloat("attack_offset_x", 0f),
+            attackYFromBottom = p.getFloat("attack_y_from_bottom", 600f),
+            upOffsetX = p.getFloat("up_offset_x", 0f),
+            upYFromBottom = p.getFloat("up_y_from_bottom", 695f),
+            downOffsetX = p.getFloat("down_offset_x", 0f),
+            downYFromBottom = p.getFloat("down_y_from_bottom", 514f),
+            circleOffsetX = p.getFloat("circle_offset_x", 0f),
+            circleYFromBottom = p.getFloat("circle_y_from_bottom", 317.3f)
         )
     }
 
@@ -58,6 +74,14 @@ object ConfigManager {
             putInt("input_height", config.inputHeightRatio)
             putLong("record_delay", config.recordDelay)
             putInt("game_speed", config.gameSpeed)
+            putFloat("attack_offset_x", config.attackOffsetX)
+            putFloat("attack_y_from_bottom", config.attackYFromBottom)
+            putFloat("up_offset_x", config.upOffsetX)
+            putFloat("up_y_from_bottom", config.upYFromBottom)
+            putFloat("down_offset_x", config.downOffsetX)
+            putFloat("down_y_from_bottom", config.downYFromBottom)
+            putFloat("circle_offset_x", config.circleOffsetX)
+            putFloat("circle_y_from_bottom", config.circleYFromBottom)
             apply()
         }
     }

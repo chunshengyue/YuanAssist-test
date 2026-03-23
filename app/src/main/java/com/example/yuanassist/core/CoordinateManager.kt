@@ -47,8 +47,8 @@ class CoordinateManager(private val context: Context) {
     }
 
     // 获取指定列和高度类型的最终屏幕坐标 (Bottom-Up 算法)
-    fun getActionCoordinates(colIndex: Int, designYFromBottom: Float): PointF {
-        val x = gameOffsetX + (colIndex * colWidth) + (colWidth / 2f)
+    fun getActionCoordinates(colIndex: Int, designYFromBottom: Float, designXOffset: Float = 0f): PointF {
+        val x = gameOffsetX + (colIndex * colWidth) + (colWidth / 2f) + (designXOffset * gameScale)
         val y = screenHeight - (designYFromBottom * gameScale)
         return PointF(x, y)
     }

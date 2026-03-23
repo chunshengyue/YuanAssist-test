@@ -94,6 +94,19 @@ class HomeFragment : Fragment() {
         ddlAdapter = DdlAdapter(ddlList)
         rvDdl.layoutManager = LinearLayoutManager(requireContext())
         rvDdl.adapter = ddlAdapter
+
+        view.findViewById<Button>(R.id.btn_main_daily_settings).setOnClickListener {
+            val mainActivity = activity as? MainActivity
+            if (mainActivity != null) {
+                mainActivity.navigateToTab(R.id.nav_daily)
+            } else {
+                startActivity(
+                    Intent(requireContext(), MainActivity::class.java).apply {
+                        putExtra(MainActivity.EXTRA_TARGET_TAB, MainActivity.TARGET_TAB_DAILY)
+                    }
+                )
+            }
+        }
     }
 
     private fun loadDdlData() {

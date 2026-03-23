@@ -1,133 +1,40 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.cardview.widget.CardView xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.cardview.widget.CardView
+    xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:layout_width="300dp"
-    android:layout_height="wrap_content"
-    app:cardBackgroundColor="@android:color/transparent"
-    app:cardCornerRadius="16dp"
-    app:cardElevation="10dp">
+    android:layout_width="wrap_content"
+    android:layout_height="50dp"
+    app:cardBackgroundColor="#FDFDFD"
+    app:cardCornerRadius="25dp"
+    app:cardElevation="6dp">
 
-    <androidx.constraintlayout.widget.ConstraintLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="@drawable/silk_bg"
-        android:foreground="@drawable/bg_palace_window"
-        android:padding="20dp">
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="match_parent"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
 
-        <Button
-            android:id="@+id/btn_daily_close"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
-            android:layout_marginTop="4dp"
-            android:layout_marginEnd="4dp"
-            android:background="@drawable/btn_win_close"
-            android:elevation="10dp"
-            android:fontFamily="serif"
-            android:gravity="center"
+        <ImageView
+            android:id="@+id/iv_daily_drag_handle"
+            android:layout_width="50dp"
+            android:layout_height="50dp"
+            android:background="@android:color/transparent"
             android:padding="0dp"
-            android:text="×"
-            android:textColor="@color/rouge_deep"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintTop_toTopOf="parent" />
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_float_logo" />
 
-        <TextView
-            android:id="@+id/tv_daily_title"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:fontFamily="serif"
-            android:gravity="center"
-            android:text="日常小助手"
-            android:textColor="@color/palace_blue"
-            android:textSize="20sp"
-            android:textStyle="bold"
-            app:layout_constraintEnd_toStartOf="@id/btn_daily_close"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toTopOf="parent" />
+        <View
+            android:layout_width="1dp"
+            android:layout_height="20dp"
+            android:background="#DDDDDD" />
 
-        <TextView
-            android:id="@+id/tv_daily_status"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:gravity="center"
-            android:text="状态：待命中..."
-            android:textColor="#C0392B"
-            android:textSize="14sp"
-            android:textStyle="bold"
-            app:layout_constraintTop_toBottomOf="@id/tv_daily_title" />
-
-        <LinearLayout
-            android:id="@+id/ll_actions"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:orientation="horizontal"
-            app:layout_constraintTop_toBottomOf="@id/tv_daily_status">
-
-            <Button
-                android:id="@+id/btn_daily_load"
-                android:layout_width="0dp"
-                android:layout_height="35dp"
-                android:layout_marginEnd="4dp"
-                android:layout_weight="1"
-                android:background="@drawable/btn_jade_normal"
-                android:fontFamily="serif"
-                android:text="脚本库"
-                android:textColor="@color/palace_blue"
-                android:textSize="14sp"
-                android:textStyle="bold" />
-
-            <Button
-                android:id="@+id/btn_daily_action"
-                android:layout_width="0dp"
-                android:layout_height="35dp"
-                android:layout_marginStart="4dp"
-                android:layout_weight="1"
-                android:background="@drawable/btn_jade_primary"
-                android:fontFamily="serif"
-                android:text="开始执行"
-                android:textColor="#FFFFFF"
-                android:textSize="14sp"
-                android:textStyle="bold" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:id="@+id/ll_daily_tools"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:orientation="horizontal"
-            app:layout_constraintTop_toBottomOf="@id/ll_actions">
-
-            <Button
-                android:id="@+id/btn_daily_stitch_inventory"
-                android:layout_width="0dp"
-                android:layout_height="35dp"
-                android:layout_marginEnd="4dp"
-                android:layout_weight="1"
-                android:background="@drawable/btn_jade_normal"
-                android:fontFamily="serif"
-                android:text="星石拼图"
-                android:textColor="@color/palace_blue"
-                android:textSize="14sp"
-                android:textStyle="bold" />
-
-            <Button
-                android:id="@+id/btn_daily_pick_coordinate"
-                android:layout_width="0dp"
-                android:layout_height="35dp"
-                android:layout_marginStart="4dp"
-                android:layout_weight="1"
-                android:background="@drawable/btn_jade_normal"
-                android:fontFamily="serif"
-                android:text="选取点坐标"
-                android:textColor="@color/palace_blue"
-                android:textSize="14sp"
-                android:textStyle="bold" />
-        </LinearLayout>
-
-    </androidx.constraintlayout.widget.ConstraintLayout>
+        <ImageButton
+            android:id="@+id/btn_daily_action"
+            android:layout_width="45dp"
+            android:layout_height="match_parent"
+            android:background="@android:color/transparent"
+            android:padding="10dp"
+            android:scaleType="centerInside"
+            android:src="@android:drawable/ic_media_play" />
+    </LinearLayout>
 </androidx.cardview.widget.CardView>

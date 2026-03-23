@@ -1,16 +1,16 @@
-/**
- * 模块：Core
- * 描述：无障碍服务的核心中枢类
- * 功能：接管系统无障碍权限，统筹生命周期，管理悬浮窗的显示与隐藏，协调录制引擎、跟打引擎、日常引擎的运行，以及处理OCR意图。
- */
+﻿
 package com.example.yuanassist.core
 
 import android.accessibilityservice.AccessibilityService
 import android.annotation.SuppressLint
 import android.app.AlertDialog
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.graphics.PixelFormat
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -20,9 +20,14 @@ import android.text.SpannableStringBuilder
 import android.text.style.ForegroundColorSpan
 import android.util.Log
 import android.view.ContextThemeWrapper
+import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
+import android.util.TypedValue
+import android.widget.FrameLayout
 import android.widget.*
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -37,6 +42,7 @@ import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.*
 import org.opencv.android.OpenCVLoader
 import java.io.File
+import kotlin.math.roundToInt
 
 private var isAutoSelectAgentEnabled = false
 private var selectedAgents = Array(5) { "" }
@@ -70,9 +76,9 @@ class YuanAssistService : AccessibilityService() {
             instance?.processOcrImage(bitmap)
         }
 
-        private val REGEX_INVALID = Regex("[^0-9A↑↓圈]")
+        private val REGEX_INVALID = Regex("[^0-9A\\u2191\\u2193\\u5708]")
         private val REGEX_IL = Regex("[Il|](?=\\d)")
-        private val REGEX_ARROW_UP = Regex("[→←TI|l+t/]")
+        private val REGEX_ARROW_UP = Regex("[\\u2192\\u2190TI|l+t/]")
         private val REGEX_ARROW_DOWN = Regex("[J!?]")
         private val REGEX_END_4 = Regex("(?<=\\d)4$")
         private val REGEX_MID_1 = Regex("(?<=\\d)1(?=\\d)")
@@ -95,6 +101,9 @@ class YuanAssistService : AccessibilityService() {
         get() = if (isFollowMode) combatEngine.followData else recordEngine.recordData
     private var tableAdapter: LogAdapter? = null
     private lateinit var uiManager: com.example.yuanassist.ui.FloatingUIManager
+    private var combatAnchorPickerView: View? = null
+    private var pendingCombatAnchorType: String? = null
+    private val systemWindowManager by lazy { getSystemService(WINDOW_SERVICE) as WindowManager }
 
     private val deviceId: String by lazy {
         Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID) ?: "unknown_device"
@@ -102,7 +111,6 @@ class YuanAssistService : AccessibilityService() {
 
     @Volatile
     private var isOcrProcessing = false
-    // --- 生命周期与服务初始化 ---
     override fun onCreate() {
         super.onCreate()
         uiManager = com.example.yuanassist.ui.FloatingUIManager(this)
@@ -112,8 +120,12 @@ class YuanAssistService : AccessibilityService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action
 
-        // 检查核心组件是否已初始化
-        if (action != null && action != "ACTION_START_DAILY_WINDOW") {
+        if (action != null &&
+            action != "ACTION_START_DAILY_WINDOW" &&
+            action != "ACTION_START_BIRD_FOOD" &&
+            action != "ACTION_START_INVENTORY_STITCH" &&
+            action != "ACTION_START_COORDINATE_PICKER"
+        ) {
             if (!this::combatEngine.isInitialized || !this::recordEngine.isInitialized) {
                 Log.w("YuanAssistService", "Service not fully connected yet, ignoring command: $action")
                 return super.onStartCommand(intent, flags, startId)
@@ -123,7 +135,7 @@ class YuanAssistService : AccessibilityService() {
         when (action) {
             "ACTION_RELOAD_CONFIG" -> {
                 reloadGlobalConfig()
-                Toast.makeText(this, "悬浮窗已应用最新设置", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "悬浮窗设置已应用", Toast.LENGTH_SHORT).show()
             }
             "ACTION_START_DAILY_WINDOW" -> {
                 removeInputWindow()
@@ -133,6 +145,39 @@ class YuanAssistService : AccessibilityService() {
                     dailyWindowManager = DailyWindowManager(this)
                 }
                 dailyWindowManager?.showWindow()
+            }
+            "ACTION_START_BIRD_FOOD" -> {
+                removeInputWindow()
+                uiManager.removeControlWindow()
+                uiManager.removeMinimizedWindow()
+                if (dailyWindowManager == null) {
+                    dailyWindowManager = DailyWindowManager(this)
+                }
+                val config = DailyBirdFoodBridge.pendingConfig
+                if (config == null) {
+                    Toast.makeText(this, "鸟食配置缺失", Toast.LENGTH_SHORT).show()
+                } else {
+                    dailyWindowManager?.submitBirdFoodConfig(config)
+                    dailyWindowManager?.showWindow()
+                }
+            }
+            "ACTION_START_INVENTORY_STITCH" -> {
+                removeInputWindow()
+                uiManager.removeControlWindow()
+                uiManager.removeMinimizedWindow()
+                if (dailyWindowManager == null) {
+                    dailyWindowManager = DailyWindowManager(this)
+                }
+                dailyWindowManager?.prepareInventoryStitching()
+            }
+            "ACTION_START_COORDINATE_PICKER" -> {
+                removeInputWindow()
+                uiManager.removeControlWindow()
+                uiManager.removeMinimizedWindow()
+                if (dailyWindowManager == null) {
+                    dailyWindowManager = DailyWindowManager(this)
+                }
+                dailyWindowManager?.startCoordinatePickerMode()
             }
             "ACTION_START_COMBAT_WINDOW" -> {
                 dailyWindowManager?.hideWindow()
@@ -146,9 +191,9 @@ class YuanAssistService : AccessibilityService() {
                 if (!scriptContent.isNullOrEmpty()) {
                     parseTextToTable(scriptContent)
                     if (!isFollowMode) {
-                        Toast.makeText(this, "脚本已导入，请手动切换到跟打模式查看", Toast.LENGTH_LONG).show()
+                        Toast.makeText(this, "脚本已导入，请切换到跟打模式查看。", Toast.LENGTH_LONG).show()
                     } else {
-                        Toast.makeText(this, "脚本导入成功！", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this, "脚本导入成功", Toast.LENGTH_SHORT).show()
                     }
                 }
 
@@ -164,7 +209,7 @@ class YuanAssistService : AccessibilityService() {
                         )
                         ConfigManager.saveSettings(this, newConfig)
                         reloadGlobalConfig()
-                        Toast.makeText(this, "已应用攻略推荐设置", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this, "已应用推荐设置", Toast.LENGTH_SHORT).show()
                     } catch (e: Exception) {
                         e.printStackTrace()
                     }
@@ -189,7 +234,7 @@ class YuanAssistService : AccessibilityService() {
                             }
                         }
                         if (importCount > 0) {
-                            Toast.makeText(this, "成功导入 $importCount 条附带指令", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(this, "已导入 $importCount 条额外指令", Toast.LENGTH_SHORT).show()
                         }
                     } catch (e: Exception) {
                         e.printStackTrace()
@@ -208,7 +253,7 @@ class YuanAssistService : AccessibilityService() {
                             if (selectedAgents[i].isNotEmpty()) validCount++
                         }
                         if (validCount > 0) {
-                            Toast.makeText(this, "已将 $validCount 名密探填入自动选人名单（未开启）", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(this, "已加载 $validCount 名自动选人角色", Toast.LENGTH_SHORT).show()
                         }
                     } catch (e: Exception) {
                         e.printStackTrace()
@@ -223,9 +268,9 @@ class YuanAssistService : AccessibilityService() {
         gestureDispatcher = GestureDispatcher(this, uiManager, handler)
         super.onServiceConnected()
         if (!OpenCVLoader.initDebug()) {
-            Toast.makeText(this, "OpenCV 初始化失败！", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "OpenCV 初始化失败", Toast.LENGTH_LONG).show()
         } else {
-            Log.d("GameAssist", "OpenCV 初始化成功！")
+            Log.d("GameAssist", "OpenCV 初始化成功")
         }
         instance = this
         coordinateManager = CoordinateManager(this)
@@ -306,6 +351,16 @@ class YuanAssistService : AccessibilityService() {
         if (pendingAction == "ACTION_START_DAILY_WINDOW") {
             if (dailyWindowManager == null) dailyWindowManager = DailyWindowManager(this)
             dailyWindowManager?.showWindow()
+        } else if (pendingAction == "ACTION_START_BIRD_FOOD") {
+            if (dailyWindowManager == null) dailyWindowManager = DailyWindowManager(this)
+            DailyBirdFoodBridge.pendingConfig?.let { dailyWindowManager?.submitBirdFoodConfig(it) }
+            dailyWindowManager?.showWindow()
+        } else if (pendingAction == "ACTION_START_INVENTORY_STITCH") {
+            if (dailyWindowManager == null) dailyWindowManager = DailyWindowManager(this)
+            dailyWindowManager?.prepareInventoryStitching()
+        } else if (pendingAction == "ACTION_START_COORDINATE_PICKER") {
+            if (dailyWindowManager == null) dailyWindowManager = DailyWindowManager(this)
+            dailyWindowManager?.startCoordinatePickerMode()
         } else {
             showControlWindow()
             updateTableData()
@@ -315,6 +370,12 @@ class YuanAssistService : AccessibilityService() {
 
     override fun onDestroy() {
         super.onDestroy()
+        dailyWindowManager?.hideWindow()
+        stopCombatAnchorPicker()
+        autoTaskEngine?.release()
+        if (this::combatEngine.isInitialized) {
+            combatEngine.stop()
+        }
         instance = null
         serviceScope.cancel()
     }
@@ -331,33 +392,30 @@ class YuanAssistService : AccessibilityService() {
             recordInputHeightRatio = appConfig.inputHeightRatio
         }
     }
-    // 唤起系统相册选择图片
     private fun startImagePicker() {
         val intent = Intent(this, ImagePickerActivity::class.java)
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         startActivity(intent)
     }
-    // 接收图片并上传至云端进行OCR识别
+    // Upload image to OCR backend and import the parsed result
     fun processOcrImage(bitmap: Bitmap) {
         if (isOcrProcessing) {
-            Toast.makeText(this, "正在处理中...", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "OCR 正在处理中", Toast.LENGTH_SHORT).show()
             return
         }
 
         isOcrProcessing = true
-        Toast.makeText(this, "正在上传至云端...", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "正在上传到 OCR...", Toast.LENGTH_SHORT).show()
 
         serviceScope.launch {
             val result = OcrManager.recognizeImage(bitmap, deviceId,
                 onRetryMsg = {
-                    Toast.makeText(this@YuanAssistService, "当前路线拥挤，正在自动重试", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@YuanAssistService, "网络繁忙，正在重试...", Toast.LENGTH_SHORT).show()
                 },
                 onStart = {
-                    // 开始识别的回调 (在此处通知 UI 禁用按钮/显示 Loading)
                     uiManager.controlView?.findViewById<View>(R.id.layout_ocr_loading)?.visibility = View.VISIBLE
                 },
                 onFinish = {
-                    // 完成时的回调，恢复 UI 状态
                     isOcrProcessing = false
                     uiManager.controlView?.findViewById<View>(R.id.layout_ocr_loading)?.visibility = View.GONE
                 }
@@ -367,10 +425,14 @@ class YuanAssistService : AccessibilityService() {
                 is OcrManager.OcrResult.Success -> {
                     parseTextToTable(result.parsedText)
                     if (!isFollowMode) {
-                        Toast.makeText(this@YuanAssistService, "识别成功，请手动切至【跟打模式】查看", Toast.LENGTH_LONG).show()
+                        Toast.makeText(
+                            this@YuanAssistService,
+                            "OCR 识别成功，请切换到跟打模式查看。",
+                            Toast.LENGTH_LONG
+                        ).show()
                     } else {
-                        Toast.makeText(this@YuanAssistService, "识别成功 (策略: ${result.strategyUsed})", Toast.LENGTH_SHORT).show()
-                        showControlWindow() // 确保主控制窗口打开（如果它被最小化了的话）
+                        Toast.makeText(this@YuanAssistService, "OCR 识别成功（${result.strategyUsed}）", Toast.LENGTH_SHORT).show()
+                        showControlWindow()
                     }
                 }
                 is OcrManager.OcrResult.Error -> {
@@ -379,7 +441,7 @@ class YuanAssistService : AccessibilityService() {
             }
         }
     }
-    // 正则化处理OCR返回的字符串指令
+    // Normalize OCR output into command symbols
     private fun normalizeCommand(text: String): CharSequence {
         val ssb = SpannableStringBuilder(text.uppercase().replace("\\s+".toRegex(), ""))
         fun applyRule(regex: Regex, replacement: String) {
@@ -394,22 +456,22 @@ class YuanAssistService : AccessibilityService() {
         }
 
         applyRule(REGEX_IL, "1")
-        applyRule(REGEX_ARROW_UP, "↑")
-        applyRule(REGEX_ARROW_DOWN, "↓")
+        applyRule(REGEX_ARROW_UP, "\u2191")
+        applyRule(REGEX_ARROW_DOWN, "\u2193")
 
         if (ssb.toString() == "4") {
-            ssb.replace(0, 1, "↑")
+            ssb.replace(0, 1, "\u2191")
             ssb.setSpan(ForegroundColorSpan(Color.RED), 0, 1, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
-        } else applyRule(REGEX_END_4, "↑")
+        } else applyRule(REGEX_END_4, "\u2191")
 
         if (ssb.toString() == "1") {
-            ssb.replace(0, 1, "↑")
+            ssb.replace(0, 1, "\u2191")
             ssb.setSpan(ForegroundColorSpan(Color.RED), 0, 1, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
         } else {
-            applyRule(REGEX_MID_1, "↑")
-            applyRule(REGEX_END_1, "↑")
+            applyRule(REGEX_MID_1, "\u2191")
+            applyRule(REGEX_END_1, "\u2191")
         }
-        applyRule(REGEX_DOWN_7, "↓")
+        applyRule(REGEX_DOWN_7, "\u2193")
 
         var match = REGEX_INVALID.find(ssb)
         while (match != null) {
@@ -418,19 +480,19 @@ class YuanAssistService : AccessibilityService() {
         }
         return ssb
     }
-    // 显示剪贴板文本导入弹窗
+    // Show import options dialog
     private fun showImportOptionsDialog() {
         val options = arrayOf(
-            "📋 导入文字 (剪贴板)",
-            "🖼️ 导入图片 (OCR)",
-            "📝 导入已录制表格",
-            "📁 从脚本库导入"
+            "导入文本（剪贴板）",
+            "导入图片（OCR）",
+            "导入录制表格",
+            "从脚本库导入"
         )
 
         val themeContext =
             ContextThemeWrapper(this, android.R.style.Theme_DeviceDefault_Light_Dialog)
         val dialog = AlertDialog.Builder(themeContext)
-            .setTitle("选择数据来源")
+            .setTitle("选择导入来源")
             .setItems(options) { _, which ->
                 when (which) {
                     0 -> showTextImportDialog()
@@ -448,7 +510,7 @@ class YuanAssistService : AccessibilityService() {
         }
         dialog.show()
     }
-    // 从本地脚本库导入 JSON 脚本
+    // Import JSON script from the local script library
     private fun showLocalScriptImportDialog() {
         val dir = File(filesDir, "scripts")
         val files = dir.listFiles { _, name -> name.endsWith(".json") } ?: emptyArray()
@@ -463,7 +525,7 @@ class YuanAssistService : AccessibilityService() {
             ContextThemeWrapper(this, android.R.style.Theme_DeviceDefault_Light_Dialog)
 
         safeShowDialog(
-            AlertDialog.Builder(themeContext).setTitle("请选择脚本")
+            AlertDialog.Builder(themeContext).setTitle("选择脚本")
                 .setItems(fileNames) { _, which ->
                     try {
                         val jsonStr = files[which].readText()
@@ -506,18 +568,18 @@ class YuanAssistService : AccessibilityService() {
 
                         Toast.makeText(
                             this,
-                            "已成功載入腳本：${scriptObj.title}",
+                            "已加载脚本：${scriptObj.title}",
                             Toast.LENGTH_SHORT
                         ).show()
                     } catch (e: Exception) {
-                        Toast.makeText(this, "腳本解析失敗", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this, "脚本解析失败", Toast.LENGTH_SHORT).show()
                     }
                 })
     }
-    // 从录制的数据源导入到跟打数据源
+    // Import recorded data into follow-mode data
     private fun importFromRecordData() {
         if (recordEngine.recordData.isEmpty()) {
-            Toast.makeText(this, "录制数据为空，无法导入", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "录制数据为空", Toast.LENGTH_SHORT).show()
             return
         }
         combatEngine.followData.clear()
@@ -537,7 +599,7 @@ class YuanAssistService : AccessibilityService() {
         }
         Toast.makeText(
             this,
-            "成功导入 ${recordEngine.recordData.size} 行录制数据",
+            "已导入 ${recordEngine.recordData.size} 行录制数据",
             Toast.LENGTH_SHORT
         ).show()
     }
@@ -551,7 +613,7 @@ class YuanAssistService : AccessibilityService() {
             Toast.makeText(this, "跟打数据已导入", Toast.LENGTH_SHORT).show()
         }
     }
-    // 将纯文本解析为二维表格回合数据
+    // Parse plain text into follow-mode table data
     private fun parseTextToTable(text: String) {
         if (text.isBlank()) return
         combatEngine.followData.clear()
@@ -561,15 +623,14 @@ class YuanAssistService : AccessibilityService() {
             val trimLine = line.trim()
             if (trimLine.isEmpty()) continue
             val parts = trimLine.split(Regex("\\s+"))
-            var startIndex =
-                if (parts.isNotEmpty() && (parts[0].contains("回") || parts[0].all { it.isDigit() })) 1 else 0
+            val startIndex =
+                if (parts.isNotEmpty() && (parts[0].contains("\u56DE") || parts[0].all { it.isDigit() })) 1 else 0
             val newTurn = TurnData(combatEngine.followData.size + 1)
             var charIdx = 0
             for (i in startIndex until parts.size) {
                 if (charIdx >= 5) break
                 val cmd = parts[i]
                 if (cmd == "-") {
-                    // 遇到占位符，留空，但列索引照常推进
                     newTurn.characterActions[charIdx] = ""
                 } else {
                     newTurn.characterActions[charIdx] = normalizeCommand(cmd)
@@ -580,17 +641,14 @@ class YuanAssistService : AccessibilityService() {
             successCount++
         }
         handler.post {
-            updateTableData(); Toast.makeText(
-            this,
-            "成功导入 $successCount 行",
-            Toast.LENGTH_SHORT
-        ).show()
+            updateTableData()
+            Toast.makeText(this, "已导入 $successCount 行", Toast.LENGTH_SHORT).show()
         }
     }
     @SuppressLint("ClickableViewAccessibility")
 
 
-    // 更新小悬浮窗的状态信息
+    // Update minimized floating window state
     private fun updateMiniWindowUI() {
         if (uiManager.minimizedView == null) return
 
@@ -630,7 +688,7 @@ class YuanAssistService : AccessibilityService() {
         }
     }
 
-    // 显示自动选人配置弹窗
+    // Show auto-select agent dialog
     private fun showAutoSelectAgentDialog(btnAutoSelect: TextView) {
         com.example.yuanassist.ui.dialogs.AutoSelectDialog.show(
             context = this,
@@ -638,16 +696,16 @@ class YuanAssistService : AccessibilityService() {
             currentAgents = selectedAgents,
             allAgentsLibrary = AgentRepository.ALL_AGENTS
         ) { isEnabled, newAgents ->
-            // 這個區塊是回呼，彈窗點擊儲存後會執行這裡
             isAutoSelectAgentEnabled = isEnabled
             for (i in 0 until 5) {
                 selectedAgents[i] = newAgents[i]
             }
             btnAutoSelect.text = if (isAutoSelectAgentEnabled) "自动选人：开启" else "自动选人：关闭"
-            Toast.makeText(this, "选人设置已保存", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "自动选人设置已保存", Toast.LENGTH_SHORT).show()
         }
     }
-    // 切换录制模式与跟打模式
+
+    // Switch between record mode and follow mode
     private fun switchMode() {
         isRunning = false
         removeInputWindow()
@@ -655,19 +713,19 @@ class YuanAssistService : AccessibilityService() {
         updateTableData()
         if (isFollowMode) {
             combatEngine.followData.forEach { it.isExecuting = false }
-            Toast.makeText(this, "已切换：跟打模式", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "已切换到跟打模式", Toast.LENGTH_SHORT).show()
         } else {
-            Toast.makeText(this, "已切换：录制模式", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "已切换到录制模式", Toast.LENGTH_SHORT).show()
         }
         refreshActionButtonUI()
     }
-    // 刷新主控制面板的按钮状态（播放、暂停、录制等）
+    // Refresh action button states on the main control panel
     private fun refreshActionButtonUI() {
         val btnAction = uiManager.controlView?.findViewById<Button>(R.id.btn_action)
-        val btnNext = uiManager.controlView?.findViewById<Button>(R.id.btn_next_turn) // 右上角
-        val btnUndo = uiManager.controlView?.findViewById<Button>(R.id.btn_undo)      // 左下角 (初始化)
-        val btnRedo = uiManager.controlView?.findViewById<Button>(R.id.btn_redo)      // 中下角
-        val btnExport = uiManager.controlView?.findViewById<Button>(R.id.btn_export)  // 右下角
+        val btnNext = uiManager.controlView?.findViewById<Button>(R.id.btn_next_turn)
+        val btnUndo = uiManager.controlView?.findViewById<Button>(R.id.btn_undo)
+        val btnRedo = uiManager.controlView?.findViewById<Button>(R.id.btn_redo)
+        val btnExport = uiManager.controlView?.findViewById<Button>(R.id.btn_export)
         val btnFollow = uiManager.controlView?.findViewById<Button>(R.id.btn_follow_play)
 
         if (btnAction == null || btnUndo == null) return
@@ -690,7 +748,7 @@ class YuanAssistService : AccessibilityService() {
                 combatEngine.followData.forEach { it.isExecuting = false }
                 tableAdapter?.notifyDataSetChanged()
                 Toast.makeText(this, "已停止", Toast.LENGTH_SHORT).show()
-                RunLogger.i("用户手动停止了运行")
+                RunLogger.i("用户手动停止运行")
             } else {
                 RunLogger.clear()
                 if (isFollowMode && isAutoSelectAgentEnabled) {
@@ -703,7 +761,7 @@ class YuanAssistService : AccessibilityService() {
                     refreshActionButtonUI()
                     minimizeControlWindow()
 
-                    RunLogger.i("=== 启动流程：自动选人 -> 开始跟打 ===")
+                    RunLogger.i("=== 启动流程：自动选人 -> 跟打 ===")
                     Toast.makeText(this, "开始自动选人...", Toast.LENGTH_SHORT).show()
 
                     val plan =
@@ -712,10 +770,10 @@ class YuanAssistService : AccessibilityService() {
                     autoTaskEngine?.startPlan(plan, onCompleted = { success, errorMsg ->
                         handler.post {
                             if (success) {
-                                RunLogger.i("✅ 自动选人完毕，等待 4 秒后正式进入跟打模式！")
+                                RunLogger.i("自动选人完成，5 秒后开始跟打")
                                 Toast.makeText(
                                     this@YuanAssistService,
-                                    "选人完毕，4秒后开始跟打！",
+                                    "自动选人完成，5 秒后开始跟打。",
                                     Toast.LENGTH_SHORT
                                 ).show()
 
@@ -730,19 +788,18 @@ class YuanAssistService : AccessibilityService() {
                                 }, 5000)
 
                             } else {
-                                RunLogger.e("❌ 选人异常中断: $errorMsg")
+                                RunLogger.e("自动选人中断：$errorMsg")
                                 isRunning = false
                                 refreshActionButtonUI()
                                 Toast.makeText(
                                     this@YuanAssistService,
-                                    "选人中断: $errorMsg",
+                                    "自动选人中断：$errorMsg",
                                     Toast.LENGTH_LONG
                                 ).show()
                             }
                         }
                     })
-                }
-                else if (isFollowMode) {
+                } else if (isFollowMode) {
                     RunLogger.i("=== 启动流程：直接开始跟打 ===")
                     if (combatEngine.followData.isEmpty()) {
                         Toast.makeText(this, "请先导入跟打数据", Toast.LENGTH_SHORT).show()
@@ -751,8 +808,8 @@ class YuanAssistService : AccessibilityService() {
                     isRunning = true
                     refreshActionButtonUI()
                     minimizeControlWindow()
-                    combatEngine.start()                }
-                else {
+                    combatEngine.start()
+                } else {
                     isRunning = true
                     refreshActionButtonUI()
                     showInputWindow()
@@ -761,7 +818,7 @@ class YuanAssistService : AccessibilityService() {
         }
 
         if (isFollowMode) {
-            btnAction.text = if (isRunning) "停止运行" else "开始跟打"
+            btnAction.text = if (isRunning) "停止" else "开始跟打"
 
             if (isRunning) {
                 btnNext?.text = currentFollowInfoText
@@ -796,7 +853,6 @@ class YuanAssistService : AccessibilityService() {
 
             btnFollow?.text = "返回录制"
             btnFollow?.setOnClickListener { switchMode() }
-
         } else {
             btnAction.text = if (isRunning) "停止录制" else "开始录制"
 
@@ -811,7 +867,7 @@ class YuanAssistService : AccessibilityService() {
             }
 
             if (isRunning) {
-                btnRedo?.text = "撤回"
+                btnRedo?.text = "撤销"
                 btnRedo?.setOnClickListener { recordEngine.undo() }
             } else {
                 btnRedo?.text = "清空"
@@ -824,17 +880,126 @@ class YuanAssistService : AccessibilityService() {
             btnFollow?.setOnClickListener { switchMode() }
         }
     }
-    // 安全显示系统级全局弹窗
     private fun safeShowDialog(builder: AlertDialog.Builder): AlertDialog {
         return com.example.yuanassist.utils.DialogUtils.safeShowOverlayDialog(builder)
     }
-    // 刷新表格RecyclerView的数据
+
+    private fun showCombatAnchorPickerDialog() {
+        val options = arrayOf("A", "↑", "↓", "圈")
+        val dialog = safeShowDialog(
+            AlertDialog.Builder(DialogUtils.getThemeContext(this))
+                .setTitle("选择要修正的动作")
+                .setItems(options) { _, which ->
+                    startCombatAnchorPicker(options[which])
+                }
+                .setNegativeButton("取消", null)
+        )
+        dialog.window?.clearFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun startCombatAnchorPicker(anchorType: String) {
+        stopCombatAnchorPicker()
+        pendingCombatAnchorType = anchorType
+
+        val overlay = FrameLayout(this).apply {
+            setBackgroundColor(Color.parseColor("#66000000"))
+        }
+        val hintView = TextView(this).apply {
+            text = "点击屏幕，设置 $anchorType 距离底部距离"
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
+            setPadding(40, 40, 40, 40)
+            setBackgroundColor(Color.parseColor("#99000000"))
+        }
+        overlay.addView(
+            hintView,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER
+            )
+        )
+        overlay.setOnTouchListener { _, event ->
+            when (event.action) {
+                MotionEvent.ACTION_UP -> {
+                    saveCombatAnchor(anchorType, event.rawY)
+                    stopCombatAnchorPicker()
+                    true
+                }
+                else -> true
+            }
+        }
+
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            overlayWindowType(),
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+        }
+
+        combatAnchorPickerView = overlay
+        systemWindowManager.addView(overlay, params)
+        Toast.makeText(this, "$anchorType 取点模式已开启", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun stopCombatAnchorPicker() {
+        combatAnchorPickerView?.let { view ->
+            try {
+                systemWindowManager.removeView(view)
+            } catch (_: IllegalArgumentException) {
+            } finally {
+                combatAnchorPickerView = null
+                pendingCombatAnchorType = null
+            }
+        }
+    }
+
+    private fun saveCombatAnchor(anchorType: String, rawY: Float) {
+        val yFromBottom = ((coordinateManager.screenHeight - rawY) / coordinateManager.gameScale).coerceAtLeast(0f)
+
+        val oldConfig = ConfigManager.getAllConfig(this)
+        val newConfig = when (anchorType) {
+            "A" -> oldConfig.copy(attackYFromBottom = yFromBottom)
+            "↑" -> oldConfig.copy(upYFromBottom = yFromBottom)
+            "↓" -> oldConfig.copy(downYFromBottom = yFromBottom)
+            else -> oldConfig.copy(circleYFromBottom = yFromBottom)
+        }
+        ConfigManager.saveSettings(this, newConfig)
+        reloadGlobalConfig()
+
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val summary = "$anchorType 距离底部距离=${formatConfigFloat(yFromBottom)}"
+        clipboard.setPrimaryClip(ClipData.newPlainText("combat-anchor", summary))
+        Toast.makeText(this, "$anchorType 已保存: $summary", Toast.LENGTH_LONG).show()
+    }
+
+    private fun formatConfigFloat(value: Float): String {
+        val rounded = (value * 10f).roundToInt() / 10f
+        return if (rounded == rounded.toInt().toFloat()) {
+            rounded.toInt().toString()
+        } else {
+            rounded.toString()
+        }
+    }
+
+    private fun overlayWindowType(): Int =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        } else {
+            WindowManager.LayoutParams.TYPE_PHONE
+        }
+
     private fun updateTableData() {
         if (tableAdapter != null) {
             tableAdapter?.updateData(currentDisplayData)
         }
     }
-    // 在指定回合后插入空回合
     private fun showInsertTurnDialog() {
         ServiceDialogs.showInsertTurnDialog(this) { targetTurn ->
             insertTurnAfter(targetTurn)
@@ -843,7 +1008,7 @@ class YuanAssistService : AccessibilityService() {
 
     private fun insertTurnAfter(targetTurnNumber: Int) {
         if (combatEngine.followData.isEmpty()) {
-            Toast.makeText(this, "列表为空，无法新增", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "列表为空", Toast.LENGTH_SHORT).show()
             return
         }
 
@@ -858,18 +1023,16 @@ class YuanAssistService : AccessibilityService() {
             combatEngine.followData.add(index + 1, newTurn)
 
             tableAdapter?.notifyDataSetChanged()
-            Toast.makeText(this, "已在 T$targetTurnNumber 后新增空回合", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "已在 T$targetTurnNumber 后插入空回合", Toast.LENGTH_SHORT).show()
 
             val rv = uiManager.controlView?.findViewById<RecyclerView>(R.id.rv_log_table)
             rv?.scrollToPosition(index + 1)
         } else {
-            Toast.makeText(this, "找不到第 $targetTurnNumber 回合，请检查", Toast.LENGTH_SHORT)
-                .show()
+            Toast.makeText(this, "未找到回合 T$targetTurnNumber", Toast.LENGTH_SHORT).show()
         }
     }
 
 
-    // 弹出单步动作的编辑弹窗
     private fun showEditDialog(turnIndex: Int, charIndex: Int) {
         if (turnIndex >= currentDisplayData.size) return
         val currentText = currentDisplayData[turnIndex].characterActions[charIndex]
@@ -915,13 +1078,13 @@ class YuanAssistService : AccessibilityService() {
         }
     }
 
-    // 弹出导出图片或脚本库的选项
+    // Show export mode dialog
     private fun showExportModeSelectionDialog() {
-        val options = arrayOf("🖼️ 导出表格图片", "💾 导出到脚本库")
+        val options = arrayOf("导出表格图片", "导出到脚本库")
         val themeContext =
             android.view.ContextThemeWrapper(this, android.R.style.Theme_DeviceDefault_Light_Dialog)
         safeShowDialog(
-            AlertDialog.Builder(themeContext).setTitle("请选择导出方式")
+            AlertDialog.Builder(themeContext).setTitle("选择导出方式")
                 .setItems(options) { _, which ->
                     if (which == 0) showExportDialog() else showSaveToLibraryDialog()
                 })
@@ -933,7 +1096,7 @@ class YuanAssistService : AccessibilityService() {
         ServiceDialogs.showSaveToLibraryDialog(this, defaultName) { scriptName ->
             val sb = StringBuilder()
             for (turn in currentDisplayData) {
-                sb.append("${turn.turnNumber}回合")
+                sb.append("${turn.turnNumber}\u56DE\u5408")
                 for (action in turn.characterActions) {
                     sb.append("\t").append(action.ifEmpty { "-" })
                 }
@@ -965,9 +1128,9 @@ class YuanAssistService : AccessibilityService() {
                 if (!dir.exists()) dir.mkdirs()
                 val file = File(dir, "$scriptName.json")
                 file.writeText(Gson().toJson(finalJsonObj))
-                Toast.makeText(this, "已成功保存至脚本库！", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "已保存到脚本库", Toast.LENGTH_SHORT).show()
             } catch (e: Exception) {
-                Toast.makeText(this, "保存失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "保存失败：${e.message}", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -980,14 +1143,18 @@ class YuanAssistService : AccessibilityService() {
         val btnMinimize = view.findViewById<Button>(R.id.btn_minimize)
         val btnClose = view.findViewById<Button>(R.id.btn_close)
         val btnAutoSelect = view.findViewById<TextView>(R.id.btn_feedback_update)
+        val btnCombatAnchorPicker = view.findViewById<TextView>(R.id.btn_combat_anchor_picker)
         val btnMiniSettings = view.findViewById<TextView>(R.id.btn_mini_settings)
         btnAutoSelect.text = if (isAutoSelectAgentEnabled) "自动选人：开启" else "自动选人：关闭"
         btnAutoSelect.setOnClickListener {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 showAutoSelectAgentDialog(btnAutoSelect)
             } else {
-                Toast.makeText(this, "「自动选人」功能需要安卓 11 及以上系统支持", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "自动选人需要 Android 11 及以上版本", Toast.LENGTH_SHORT).show()
             }
+        }
+        btnCombatAnchorPicker?.setOnClickListener {
+            showCombatAnchorPickerDialog()
         }
         btnMiniSettings?.setOnClickListener {
             SettingsDialog.show(this) {
@@ -1005,7 +1172,7 @@ class YuanAssistService : AccessibilityService() {
         view.tag = "initialized"
         refreshActionButtonUI()
     }
-    // 显示迷你悬浮球
+    // Show minimized floating window
     @SuppressLint("ClickableViewAccessibility")
     private fun showMinimizedWindow() {
         val view = uiManager.createMinimizedWindow()
@@ -1037,7 +1204,6 @@ class YuanAssistService : AccessibilityService() {
         view.tag = "initialized"
         updateMiniWindowUI()
     }
-    // 展开透明的屏幕输入拦截层（录制用）
     private fun showInputWindow() {
         uiManager.createInputWindow { event ->
             recordEngine.handleTouch(
@@ -1047,7 +1213,6 @@ class YuanAssistService : AccessibilityService() {
             )
         }
     }
-    // 移除相关悬浮窗
     private fun removeInputWindow() {
         uiManager.removeInputWindow()
         isSimulating = false

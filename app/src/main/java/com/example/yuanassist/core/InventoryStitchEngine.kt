@@ -119,7 +119,7 @@ class InventoryStitchEngine(private val service: AccessibilityService) {
         this.onCompleted = onCompleted
         resetState()
 
-        RunLogger.i("Inventory stitch start")
+        RunLogger.i("开始物品拼接")
         onStatusUpdate("正在截图...")
 
         handler.postDelayed(
@@ -133,7 +133,7 @@ class InventoryStitchEngine(private val service: AccessibilityService) {
 
         isRunning = false
         releaseState()
-        RunLogger.i("Inventory stitch stopped")
+        RunLogger.i("物品拼接已停止")
         onStatusUpdate?.invoke("已停止")
         onCompleted?.invoke(false)
     }
@@ -197,7 +197,7 @@ class InventoryStitchEngine(private val service: AccessibilityService) {
             val previousPending = pendingFrame
 
             if (previousPending != null && isFrameAlmostUnchanged(previousPending.bitmap, croppedBitmap)) {
-                RunLogger.i("Detected unchanged frame at frame=$frameIndex, finishing stitch")
+                RunLogger.i("检测到未变化帧，帧=$frameIndex，结束拼接")
                 croppedBitmap.recycle()
                 appendPendingFrameSegment(previousPending, previousPending.bitmap.height)
                 saveStitchedImage()
@@ -235,7 +235,7 @@ class InventoryStitchEngine(private val service: AccessibilityService) {
         bitmap.recycle()
 
         RunLogger.i(
-            "Crop frame: source=${sourceWidth}x${sourceHeight}, scale=%.3f, top=%d, bottom=%d, result=%dx%d".format(
+            "裁剪帧：原图=${sourceWidth}x${sourceHeight}，缩放=%.3f，顶部=%d，底部=%d，结果=%dx%d".format(
                 scale,
                 safeTopCrop,
                 bottomCrop,
@@ -287,28 +287,14 @@ class InventoryStitchEngine(private val service: AccessibilityService) {
                     val previousPending = pendingFrame
 
                     if (previousPending == null) {
-                        val firstDebug = drawDebugImage(
-                            bitmap = croppedBitmap,
-                            rows = rows,
-                            templateSpec = templateSpec,
-                            matchResult = null,
-                            scale = scale
-                        )
-                        val savedLocation = saveBitmapToGallery(
-                            firstDebug,
-                            "inventory_frame_${frameIndex}_first"
-                        )
-                        firstDebug.recycle()
-
                         logMergedRows(frameIndex, rows)
                         RunLogger.i(
-                            "Frame $frameIndex template: centerY=%.1f, top=%d, bottom=%d".format(
+                            "帧 $frameIndex 模板：中心Y=%.1f，顶部=%d，底部=%d".format(
                                 templateSpec.centerY,
                                 templateSpec.top,
                                 templateSpec.bottom
                             )
                         )
-                        RunLogger.i("Frame $frameIndex debug image saved: $savedLocation")
 
                         pendingFrame = PendingFrame(
                             frameIndex = frameIndex,
@@ -332,22 +318,9 @@ class InventoryStitchEngine(private val service: AccessibilityService) {
                         currentPreprocessed = preprocessedImage,
                         currentRows = rows
                     )
-                    val matchDebug = drawDebugImage(
-                        bitmap = croppedBitmap,
-                        rows = rows,
-                        templateSpec = templateSpec,
-                        matchResult = matchResult,
-                        scale = scale
-                    )
-                    val savedLocation = saveBitmapToGallery(
-                        matchDebug,
-                        "inventory_frame_${frameIndex}_match"
-                    )
-                    matchDebug.recycle()
-
                     logMergedRows(frameIndex, rows)
                     RunLogger.i(
-                        "Frame $frameIndex match: score=%.4f, acceptedThreshold=%.1f, matchCenterY=%.1f, matchedRowTop=%d, matchedRowBottom=%d, searchHeight=%d".format(
+                        "帧 $frameIndex 匹配：分数=%.4f，采用阈值=%.1f，匹配中心Y=%.1f，匹配行顶部=%d，匹配行底部=%d，搜索高度=%d".format(
                             matchResult.score,
                             matchResult.acceptedThreshold,
                             matchResult.matchCenterY,
@@ -356,7 +329,6 @@ class InventoryStitchEngine(private val service: AccessibilityService) {
                             matchResult.searchHeight
                         )
                     )
-                    RunLogger.i("Frame $frameIndex debug image saved: $savedLocation")
 
                     appendPendingFrameSegment(previousPending, previousPending.lastRow.bottom)
                     previousPending.templateSpec.templateMat.release()
@@ -367,7 +339,7 @@ class InventoryStitchEngine(private val service: AccessibilityService) {
                         bitmap = croppedBitmap,
                         lastRow = rows.last(),
                         templateSpec = templateSpec,
-                        startY = matchResult.matchedRow.top
+                        startY = matchResult.matchedRow.bottom
                     )
 
                     preprocessedImage.bitmap.recycle()
@@ -443,7 +415,7 @@ class InventoryStitchEngine(private val service: AccessibilityService) {
             val scaleBack = sourceBitmap.width.toFloat() / processedBitmap.width.toFloat()
 
             RunLogger.i(
-                "MLKit preprocess: source=${sourceBitmap.width}x${sourceBitmap.height}, processed=${processedBitmap.width}x${processedBitmap.height}, scaleBack=%.3f, yellowMaskRatio=%.4f".format(
+                "ML Kit 预处理：原图=${sourceBitmap.width}x${sourceBitmap.height}，处理后=${processedBitmap.width}x${processedBitmap.height}，回缩比例=%.3f，黄色遮罩占比=%.4f".format(
                     scaleBack,
                     maskRatio
                 )
@@ -578,7 +550,7 @@ class InventoryStitchEngine(private val service: AccessibilityService) {
         }
 
         RunLogger.i(
-            "Frame ${previousPending.frameIndex} low score %.4f < %.1f, retry full image search".format(
+            "帧 ${previousPending.frameIndex} 低分 %.4f < %.1f，重试整图搜索".format(
                 halfResult.score,
                 LOW_SCORE_FULL_SEARCH_THRESHOLD
             )
@@ -598,10 +570,10 @@ class InventoryStitchEngine(private val service: AccessibilityService) {
         }
 
         RunLogger.i(
-            "Frame ${previousPending.frameIndex} search compare: half=%.4f, full=%.4f, selected=%s".format(
+            "帧 ${previousPending.frameIndex} 搜索对比：半图=%.4f，整图=%.4f，选中=%s".format(
                 halfResult.score,
                 fullResult.score,
-                if (selectedResult === fullResult) "full" else "half"
+                if (selectedResult === fullResult) "整图" else "半图"
             )
         )
 
@@ -647,15 +619,15 @@ class InventoryStitchEngine(private val service: AccessibilityService) {
                     matchTopProcessed + (previousPending.templateSpec.templateMat.rows() / 2f)
                 val matchCenterOriginal = matchCenterProcessed * currentPreprocessed.coordinateScaleBack
 
-                val searchMode = if (searchFullImage) "full" else "upper"
+                val searchMode = if (searchFullImage) "整图" else "上半区"
                 var acceptedThreshold: Double? = null
                 var threshold = MATCH_THRESHOLD_START
                 while (threshold >= MATCH_THRESHOLD_END - 1e-6) {
                     val matched = minMax.maxVal >= threshold
                     RunLogger.i(
-                        "Frame ${previousPending.frameIndex} $searchMode search threshold %.1f -> %s (score=%.4f)".format(
+                        "帧 ${previousPending.frameIndex} $searchMode 搜索阈值 %.1f -> %s（分数=%.4f）".format(
                             threshold,
-                            if (matched) "matched" else "miss",
+                            if (matched) "命中" else "未命中",
                             minMax.maxVal
                         )
                     )
@@ -727,7 +699,7 @@ class InventoryStitchEngine(private val service: AccessibilityService) {
             }
 
             RunLogger.i(
-                "Append frame ${frame.frameIndex}: start=$safeStart, end=$safeEnd, segmentHeight=$segmentHeight, totalHeight=${stitchedBitmap?.height ?: 0}"
+                "追加帧 ${frame.frameIndex}：起点=$safeStart，终点=$safeEnd，片段高度=$segmentHeight，总高度=${stitchedBitmap?.height ?: 0}"
             )
         } finally {
             segmentBitmap.recycle()
@@ -773,7 +745,7 @@ class InventoryStitchEngine(private val service: AccessibilityService) {
 
     private fun isFrameAlmostUnchanged(previousBitmap: Bitmap, currentBitmap: Bitmap): Boolean {
         val meanDiff = calculateFrameDiffMean(previousBitmap, currentBitmap)
-        RunLogger.i("Frame diff mean=%.2f".format(meanDiff))
+        RunLogger.i("帧差异均值=%.2f".format(meanDiff))
         return meanDiff < UNCHANGED_DIFF_THRESHOLD
     }
 
@@ -846,7 +818,7 @@ class InventoryStitchEngine(private val service: AccessibilityService) {
 
     private fun logRecognizedLines(frameIndex: Int, result: Text, coordinateScaleBack: Float) {
         val lines = result.textBlocks.flatMap { it.lines }
-        RunLogger.i("Frame $frameIndex raw summary: blocks=${result.textBlocks.size}, lines=${lines.size}")
+        RunLogger.i("帧 $frameIndex 原始摘要：文本块=${result.textBlocks.size}，行数=${lines.size}")
 
         var foundChineseLine = false
         lines.forEachIndexed { index, line ->
@@ -860,7 +832,7 @@ class InventoryStitchEngine(private val service: AccessibilityService) {
             val top = (boundingBox.top * coordinateScaleBack).roundToInt()
             val bottom = (boundingBox.bottom * coordinateScaleBack).roundToInt()
             RunLogger.i(
-                "Frame $frameIndex raw line ${index + 1}: centerY=%.1f, top=%d, bottom=%d, chineseCount=%d, text=%s".format(
+                "帧 $frameIndex 原始行 ${index + 1}：中心Y=%.1f，顶部=%d，底部=%d，中文数=%d，文本=%s".format(
                     centerY,
                     top,
                     bottom,
@@ -871,19 +843,19 @@ class InventoryStitchEngine(private val service: AccessibilityService) {
         }
 
         if (!foundChineseLine) {
-            RunLogger.i("Frame $frameIndex raw line probe: no lines with Chinese characters")
+            RunLogger.i("帧 $frameIndex 原始行探测：没有包含中文的行")
         }
     }
 
     private fun logMergedRows(frameIndex: Int, rows: List<TextRow>) {
         if (rows.isEmpty()) {
-            RunLogger.i("Frame $frameIndex merged rows: none")
+            RunLogger.i("帧 $frameIndex 合并行：无")
             return
         }
 
         rows.forEachIndexed { index, row ->
             RunLogger.i(
-                "Frame $frameIndex merged row ${index + 1}: centerY=%.1f, top=%d, bottom=%d, text=%s".format(
+                "帧 $frameIndex 合并行 ${index + 1}：中心Y=%.1f，顶部=%d，底部=%d，文本=%s".format(
                     row.centerY,
                     row.top,
                     row.bottom,
@@ -909,7 +881,7 @@ class InventoryStitchEngine(private val service: AccessibilityService) {
         try {
             val bitmap = stitchedBitmap ?: throw IllegalStateException("没有拼接结果可保存")
             val savedLocation = saveBitmapToGallery(bitmap, "inventory_stitched")
-            RunLogger.i("Stitched image saved: $savedLocation")
+            RunLogger.i("拼接图片已保存：$savedLocation")
             isRunning = false
             pendingFrame?.templateSpec?.templateMat?.release()
             pendingFrame?.bitmap?.recycle()
@@ -965,7 +937,7 @@ class InventoryStitchEngine(private val service: AccessibilityService) {
         service.dispatchGesture(gesture, object : AccessibilityService.GestureResultCallback() {
             override fun onCompleted(gestureDescription: GestureDescription?) {
                 RunLogger.i(
-                    "Single swipe completed: startY=%.1f, endY=%.1f, delta=%.1f".format(
+                    "单次滑动完成：起点Y=%.1f，终点Y=%.1f，位移=%.1f".format(
                         startY,
                         endY,
                         startY - endY
@@ -987,8 +959,8 @@ class InventoryStitchEngine(private val service: AccessibilityService) {
         if (!isRunning) return
 
         isRunning = false
-        RunLogger.e("Inventory stitch failed: $msg")
-        onStatusUpdate?.invoke("出现错误: $msg")
+        RunLogger.e("物品拼接失败：$msg")
+        onStatusUpdate?.invoke("出现错误：$msg")
         releaseState()
         onCompleted?.invoke(false)
     }

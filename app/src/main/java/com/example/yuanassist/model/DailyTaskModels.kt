@@ -11,7 +11,8 @@ data class DailyTask(
     val delay: Long = 0,
     val params: TaskParams?, // 有些指令可能没有 params
     val on_success: Int = -1,
-    val on_fail: Int = -1
+    val on_fail: Int = -1,
+    val start_cooldown_on_success: Boolean = false
 )
 
 data class TaskParams(
@@ -38,7 +39,8 @@ data class TaskParams(
     val var_name: String? = null,
     val var_value: String? = null,
     val branch_var: String? = null,
-    val branch_routes: Map<String, Int>? = null
+    val branch_routes: Map<String, Int>? = null,
+    val terminal_note: String? = null
 )
 
 data class ROI(

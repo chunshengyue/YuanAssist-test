@@ -222,12 +222,18 @@ class CombatEngine(
         RunLogger.i("  -> 执行动作: 站位${action.colIndex + 1} ${action.command}")
         val char = action.command[0]
 
-        val basePointA =
-            coordinateManager.getActionCoordinates(action.colIndex, GameConstants.DESIGN_Y_A)
-        val baseStartUp =
-            coordinateManager.getActionCoordinates(action.colIndex, GameConstants.DESIGN_Y_UP)
-        val baseStartDown =
-            coordinateManager.getActionCoordinates(action.colIndex, GameConstants.DESIGN_Y_DOWN)
+        val basePointA = coordinateManager.getActionCoordinates(
+            action.colIndex,
+            appConfig.attackYFromBottom
+        )
+        val baseStartUp = coordinateManager.getActionCoordinates(
+            action.colIndex,
+            appConfig.upYFromBottom
+        )
+        val baseStartDown = coordinateManager.getActionCoordinates(
+            action.colIndex,
+            appConfig.downYFromBottom
+        )
 
         when (char) {
             'A' -> {
@@ -242,7 +248,7 @@ class CombatEngine(
             '圈' -> {
                 val p = coordinateManager.getActionCoordinates(
                     action.colIndex,
-                    GameConstants.DESIGN_Y_CIRCLE
+                    appConfig.circleYFromBottom
                 )
                 gestureDispatcher.performActionDirect(p.x, p.y, p.x, p.y, true)
             }
@@ -268,10 +274,7 @@ class CombatEngine(
             }
 
             '↓' -> {
-                val baseStart = coordinateManager.getActionCoordinates(
-                    action.colIndex,
-                    GameConstants.DESIGN_Y_DOWN
-                )
+                val baseStart = baseStartDown
                 val sx = addRandomOffset(
                     baseStart.x,
                     GameConstants.RND_OFFSET_SWIPE_X * coordinateManager.gameScale

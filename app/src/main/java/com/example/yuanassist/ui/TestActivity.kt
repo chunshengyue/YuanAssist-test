@@ -29,6 +29,24 @@ import kotlin.math.min
 
 class TestActivity : AppCompatActivity() {
 
+    companion object {
+        private const val START_BATTLE_RED_OPTION = "开始战斗（底部红按钮）"
+        private const val START_BATTLE_RED_MIN_CONFIDENCE = 0.55f
+    }
+
+    private data class RedRegionMatch(
+        val center: PointF,
+        val confidence: Float,
+        val sizeScore: Float,
+        val fillRatio: Float,
+        val rednessScore: Float,
+        val minX: Int,
+        val minY: Int,
+        val maxX: Int,
+        val maxY: Int,
+        val step: Int
+    )
+
     private lateinit var ivScreenshot: ImageView
     private lateinit var tvLog: TextView
     private lateinit var spinnerTemplates: Spinner
@@ -82,7 +100,11 @@ class TestActivity : AppCompatActivity() {
 
             // 获取下拉菜单当前选中的文件名
             val selectedTemplate = spinnerTemplates.selectedItem.toString()
-            runMultiTargetMatchTest(selectedTemplate)
+            if (selectedTemplate == START_BATTLE_RED_OPTION) {
+                runStartBattleRedMatchTest()
+            } else {
+                runMultiTargetMatchTest(selectedTemplate)
+            }
         }
     }
 
@@ -91,7 +113,7 @@ class TestActivity : AppCompatActivity() {
             // 获取 assets 根目录所有文件
             val allFiles = assets.list("") ?: emptyArray()
             // 过滤出 .png 和 .jpg 文件
-            availableTemplates =
+            availableTemplates = listOf(START_BATTLE_RED_OPTION) +
                 allFiles.filter { it.endsWith(".png", true) || it.endsWith(".jpg", true) }
 
             if (availableTemplates.isNotEmpty()) {
@@ -230,5 +252,207 @@ class TestActivity : AppCompatActivity() {
         srcMat.release(); tmplMat.release(); resultMat.release()
         templateBitmap.recycle()
         if (scaledScreen !== hwBitmap) scaledScreen.recycle()
+    }
+
+    private fun runStartBattleRedMatchTest() {
+        log("------------------------")
+        log("开始检测【开始战斗】底部红色按钮")
+        val source = currentBitmap ?: return
+        val swBitmap = source.copy(Bitmap.Config.ARGB_8888, true)
+
+        val regionTop = (swBitmap.height * 0.8f).toInt().coerceIn(0, swBitmap.height - 1)
+        val regionHeight = (swBitmap.height - regionTop).coerceAtLeast(1)
+        val regionBitmap = Bitmap.createBitmap(swBitmap, 0, regionTop, swBitmap.width, regionHeight)
+
+        try {
+            val match = findRedRegionMatch(regionBitmap)
+            val regionPaint = Paint().apply {
+                color = Color.GREEN
+                style = Paint.Style.STROKE
+                strokeWidth = 5f
+            }
+            val canvas = Canvas(swBitmap)
+            canvas.drawRect(
+                0f,
+                regionTop.toFloat(),
+                swBitmap.width.toFloat(),
+                swBitmap.height.toFloat(),
+                regionPaint
+            )
+
+            if (match == null) {
+                log("未在底部 20% 区域检测到红色按钮")
+                ivScreenshot.setImageBitmap(swBitmap)
+                return
+            }
+            if (match.confidence < START_BATTLE_RED_MIN_CONFIDENCE) {
+                log(
+                    "检测到红色区域，但置信度不足: " +
+                        "score=${"%.3f".format(match.confidence)} " +
+                        "size=${"%.3f".format(match.sizeScore)} " +
+                        "fill=${"%.3f".format(match.fillRatio)} " +
+                        "red=${"%.3f".format(match.rednessScore)}"
+                )
+                ivScreenshot.setImageBitmap(swBitmap)
+                return
+            }
+
+            val buttonPaint = Paint().apply {
+                color = Color.RED
+                style = Paint.Style.STROKE
+                strokeWidth = 6f
+            }
+            val left = match.minX * match.step.toFloat()
+            val top = regionTop + match.minY * match.step.toFloat()
+            val right = ((match.maxX + 1) * match.step).coerceAtMost(regionBitmap.width).toFloat()
+            val bottom = regionTop + ((match.maxY + 1) * match.step).coerceAtMost(regionBitmap.height).toFloat()
+            canvas.drawRect(left, top, right, bottom, buttonPaint)
+
+            val centerX = match.center.x
+            val centerY = regionTop + match.center.y
+            log(
+                "检测成功: center=(${centerX.toInt()}, ${centerY.toInt()}) " +
+                    "score=${"%.3f".format(match.confidence)} " +
+                    "size=${"%.3f".format(match.sizeScore)} " +
+                    "fill=${"%.3f".format(match.fillRatio)} " +
+                    "red=${"%.3f".format(match.rednessScore)}"
+            )
+            ivScreenshot.setImageBitmap(swBitmap)
+        } finally {
+            regionBitmap.recycle()
+        }
+    }
+
+    private fun findRedRegionMatch(bitmap: Bitmap): RedRegionMatch? {
+        val width = bitmap.width
+        val height = bitmap.height
+        if (width <= 0 || height <= 0) return null
+
+        val step = if (width >= 300 || height >= 300) 2 else 1
+        val sampleWidth = (width + step - 1) / step
+        val sampleHeight = (height + step - 1) / step
+        val mask = BooleanArray(sampleWidth * sampleHeight)
+        val queue = IntArray(mask.size)
+        val redness = FloatArray(mask.size)
+
+        var hasRed = false
+        for (sy in 0 until sampleHeight) {
+            val y = sy * step
+            for (sx in 0 until sampleWidth) {
+                val x = sx * step
+                val index = sy * sampleWidth + sx
+                val redScore = computeRednessScore(bitmap.getPixel(x, y))
+                redness[index] = redScore
+                if (redScore > 0f) {
+                    mask[index] = true
+                    hasRed = true
+                }
+            }
+        }
+        if (!hasRed) return null
+
+        var bestCount = 0
+        var bestMinX = 0
+        var bestMaxX = 0
+        var bestMinY = 0
+        var bestMaxY = 0
+        var bestRednessSum = 0f
+        val neighbors = intArrayOf(-1, 0, 1, 0, -1)
+
+        for (sy in 0 until sampleHeight) {
+            for (sx in 0 until sampleWidth) {
+                val startIndex = sy * sampleWidth + sx
+                if (!mask[startIndex]) continue
+
+                var head = 0
+                var tail = 0
+                queue[tail++] = startIndex
+                mask[startIndex] = false
+
+                var count = 0
+                var minX = sx
+                var maxX = sx
+                var minY = sy
+                var maxY = sy
+                var rednessSum = 0f
+
+                while (head < tail) {
+                    val index = queue[head++]
+                    val cx = index % sampleWidth
+                    val cy = index / sampleWidth
+                    count += 1
+                    rednessSum += redness[index]
+                    if (cx < minX) minX = cx
+                    if (cx > maxX) maxX = cx
+                    if (cy < minY) minY = cy
+                    if (cy > maxY) maxY = cy
+
+                    for (n in 0 until 4) {
+                        val nx = cx + neighbors[n]
+                        val ny = cy + neighbors[n + 1]
+                        if (nx !in 0 until sampleWidth || ny !in 0 until sampleHeight) continue
+                        val nextIndex = ny * sampleWidth + nx
+                        if (!mask[nextIndex]) continue
+                        mask[nextIndex] = false
+                        queue[tail++] = nextIndex
+                    }
+                }
+
+                if (count > bestCount) {
+                    bestCount = count
+                    bestMinX = minX
+                    bestMaxX = maxX
+                    bestMinY = minY
+                    bestMaxY = maxY
+                    bestRednessSum = rednessSum
+                }
+            }
+        }
+
+        if (bestCount < 12) return null
+
+        val bboxWidth = bestMaxX - bestMinX + 1
+        val bboxHeight = bestMaxY - bestMinY + 1
+        val bboxArea = (bboxWidth * bboxHeight).coerceAtLeast(1)
+        val estimatedPixelArea = bestCount * step * step
+        val referenceButtonArea = 360f * 60f
+        val sizeScore = (estimatedPixelArea / referenceButtonArea).coerceIn(0f, 1f)
+        val fillRatio = bestCount.toFloat() / bboxArea.toFloat()
+        val rednessScore = (bestRednessSum / bestCount.toFloat()).coerceIn(0f, 1f)
+        val compactnessScore = ((fillRatio - 0.15f) / 0.85f).coerceIn(0f, 1f)
+        val confidence = (
+            sizeScore * 0.45f +
+                compactnessScore * 0.25f +
+                rednessScore * 0.30f
+            ).coerceIn(0f, 1f)
+
+        val centerX = ((bestMinX + bestMaxX + 1) * step / 2f).coerceIn(0f, (width - 1).toFloat())
+        val centerY = ((bestMinY + bestMaxY + 1) * step / 2f).coerceIn(0f, (height - 1).toFloat())
+        return RedRegionMatch(
+            center = PointF(centerX, centerY),
+            confidence = confidence,
+            sizeScore = sizeScore,
+            fillRatio = fillRatio,
+            rednessScore = rednessScore,
+            minX = bestMinX,
+            minY = bestMinY,
+            maxX = bestMaxX,
+            maxY = bestMaxY,
+            step = step
+        )
+    }
+
+    private fun computeRednessScore(color: Int): Float {
+        val r = Color.red(color)
+        val g = Color.green(color)
+        val b = Color.blue(color)
+        if (r < 95) return 0f
+        if (r - g < 20 || r - b < 20) return 0f
+        if (g > 185 || b > 185) return 0f
+
+        val redLevel = ((r - 95f) / 160f).coerceIn(0f, 1f)
+        val dominance = (((r - maxOf(g, b)) - 20f) / 180f).coerceIn(0f, 1f)
+        val saturation = ((255f - (g + b) / 2f) / 255f).coerceIn(0f, 1f)
+        return (redLevel * 0.45f + dominance * 0.4f + saturation * 0.15f).coerceIn(0f, 1f)
     }
 }

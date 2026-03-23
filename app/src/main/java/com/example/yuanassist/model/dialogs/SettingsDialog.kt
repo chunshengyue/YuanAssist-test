@@ -7,7 +7,13 @@ import android.text.InputType
 import android.view.Gravity
 import android.view.ViewGroup
 import android.view.WindowManager
-import android.widget.*
+import android.widget.EditText
+import android.widget.LinearLayout
+import android.widget.RadioButton
+import android.widget.RadioGroup
+import android.widget.ScrollView
+import android.widget.TextView
+import android.widget.Toast
 import com.example.yuanassist.utils.AppConfig
 import com.example.yuanassist.utils.ConfigManager
 import com.example.yuanassist.utils.DialogUtils
@@ -28,8 +34,7 @@ object SettingsDialog {
             orientation = LinearLayout.VERTICAL
         }
 
-        // 辅助函数：快速生成输入行
-        fun createRow(label: String, defaultValue: String): EditText {
+        fun createRow(label: String, defaultValue: String, inputType: Int): EditText {
             val row = LinearLayout(themeContext).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
@@ -39,11 +44,11 @@ object SettingsDialog {
                 text = label
                 textSize = 14f
                 setTextColor(Color.DKGRAY)
-                width = (130 * context.resources.displayMetrics.density).toInt()
+                width = (140 * context.resources.displayMetrics.density).toInt()
             }
             val editText = EditText(themeContext).apply {
                 setText(defaultValue)
-                inputType = InputType.TYPE_CLASS_NUMBER
+                this.inputType = inputType
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             }
             row.addView(tvLabel)
@@ -52,17 +57,26 @@ object SettingsDialog {
             return editText
         }
 
-        val etAttack = createRow("普攻间隔(ms):", currentConfig.intervalAttack.toString())
-        val etSkill = createRow("技能间隔(ms):", currentConfig.intervalSkill.toString())
-        val etWait = createRow("敌方回合(ms):", currentConfig.waitTurn.toString())
-        val etStart = createRow("起始回合:", currentConfig.startTurn.toString())
-        val etThreshold = createRow("滑动阈值:", currentConfig.swipeThreshold.toString())
-        val etHeight = createRow("输入区高度(%):", currentConfig.inputHeightRatio.toString())
-        val etRecordDelay = createRow("录制延迟(ms):", currentConfig.recordDelay.toString())
+        fun createIntRow(label: String, defaultValue: String): EditText =
+            createRow(label, defaultValue, InputType.TYPE_CLASS_NUMBER)
 
-        // 游戏倍速单选框
+        fun createFloatRow(label: String, defaultValue: String): EditText =
+            createRow(
+                label,
+                defaultValue,
+                InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED
+            )
+
+        val etAttack = createIntRow("普攻间隔(ms):", currentConfig.intervalAttack.toString())
+        val etSkill = createIntRow("技能间隔(ms):", currentConfig.intervalSkill.toString())
+        val etWait = createIntRow("敌方回合(ms):", currentConfig.waitTurn.toString())
+        val etStart = createIntRow("起始回合:", currentConfig.startTurn.toString())
+        val etThreshold = createIntRow("滑动阈值:", currentConfig.swipeThreshold.toString())
+        val etHeight = createIntRow("录制区高度(%):", currentConfig.inputHeightRatio.toString())
+        val etRecordDelay = createIntRow("录制延迟(ms):", currentConfig.recordDelay.toString())
+
         val speedLabel = TextView(themeContext).apply {
-            text = "游戏倍速:"
+            text = "游戏倍速"
             textSize = 14f
             setTextColor(Color.DKGRAY)
             setPadding(0, 20, 0, 10)
@@ -72,12 +86,31 @@ object SettingsDialog {
         val rgSpeed = RadioGroup(themeContext).apply {
             orientation = LinearLayout.HORIZONTAL
         }
-        val rb2x = RadioButton(themeContext).apply { text = "2倍速"; id = 2 }
-        val rb3x = RadioButton(themeContext).apply { text = "3倍速"; id = 3 }
+        val rb2x = RadioButton(themeContext).apply {
+            text = "2倍速"
+            id = 2
+        }
+        val rb3x = RadioButton(themeContext).apply {
+            text = "3倍速"
+            id = 3
+        }
         rgSpeed.addView(rb2x)
         rgSpeed.addView(rb3x)
         if (currentConfig.gameSpeed == 2) rgSpeed.check(2) else rgSpeed.check(3)
         scrollContent.addView(rgSpeed)
+
+        val actionConfigLabel = TextView(themeContext).apply {
+            text = "战斗动作距离底部"
+            textSize = 14f
+            setTextColor(Color.DKGRAY)
+            setPadding(0, 20, 0, 10)
+        }
+        scrollContent.addView(actionConfigLabel)
+
+        val etAttackY = createFloatRow("A 距离底部距离:", currentConfig.attackYFromBottom.toString())
+        val etUpY = createFloatRow("↑ 距离底部距离:", currentConfig.upYFromBottom.toString())
+        val etDownY = createFloatRow("↓ 距离底部距离:", currentConfig.downYFromBottom.toString())
+        val etCircleY = createFloatRow("圈 距离底部距离:", currentConfig.circleYFromBottom.toString())
 
         scrollView.addView(scrollContent)
         layout.addView(scrollView)
@@ -89,7 +122,6 @@ object SettingsDialog {
             .setNegativeButton("取消", null)
 
         val dialog = DialogUtils.safeShowOverlayDialog(builder)
-        // 清除 NOT_FOCUSABLE 标志，允许 EditText 弹出输入法
         dialog.window?.clearFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)
 
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
@@ -103,17 +135,34 @@ object SettingsDialog {
                 val delay = etRecordDelay.text.toString().toLong()
                 val speed = if (rgSpeed.checkedRadioButtonId == 2) 2 else 3
 
+                val attackY = etAttackY.text.toString().toFloat()
+                val upY = etUpY.text.toString().toFloat()
+                val downY = etDownY.text.toString().toFloat()
+                val circleY = etCircleY.text.toString().toFloat()
+
                 if (attack > 0 && skill > 0 && wait > 0 && start > 0 && threshold > 0 && height in 10..100) {
-                    val newConfig = AppConfig(attack, skill, wait, start, threshold, height, delay, speed)
+                    val newConfig = currentConfig.copy(
+                        intervalAttack = attack,
+                        intervalSkill = skill,
+                        waitTurn = wait,
+                        startTurn = start,
+                        swipeThreshold = threshold,
+                        inputHeightRatio = height,
+                        recordDelay = delay,
+                        gameSpeed = speed,
+                        attackYFromBottom = attackY,
+                        upYFromBottom = upY,
+                        downYFromBottom = downY,
+                        circleYFromBottom = circleY
+                    )
                     ConfigManager.saveSettings(context, newConfig)
-                    // 🔴 触发回调，让 Service 重新加载
                     onConfigSaved()
                     Toast.makeText(context, "设置已保存并生效", Toast.LENGTH_SHORT).show()
                     dialog.dismiss()
                 } else {
                     Toast.makeText(context, "参数数值不合理，请检查", Toast.LENGTH_SHORT).show()
                 }
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 Toast.makeText(context, "请输入有效的数字", Toast.LENGTH_SHORT).show()
             }
         }

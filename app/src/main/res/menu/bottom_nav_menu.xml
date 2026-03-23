@@ -2,16 +2,17 @@
 <menu xmlns:android="http://schemas.android.com/apk/res/android">
     <item
         android:id="@+id/nav_home"
-        android:icon="@android:drawable/ic_menu_compass"
         android:title="运行" />
 
     <item
         android:id="@+id/nav_strategy"
-        android:icon="@android:drawable/ic_menu_gallery"
         android:title="攻略" />
 
     <item
+        android:id="@+id/nav_daily"
+        android:title="日常" />
+
+    <item
         android:id="@+id/nav_profile"
-        android:icon="@android:drawable/ic_menu_manage"
         android:title="我的" />
 </menu>
